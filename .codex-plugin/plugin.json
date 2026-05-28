@@ -1,0 +1,9 @@
+{
+  "name": "hermes-observer-lite",
+  "version": "0.1",
+  "description": "Lightweight Hermes observer plugin that tails Hermes logs and streams execution events to a visual board.",
+  "interface": {
+    "displayName": "Hermes Observer Lite",
+    "description": "实时读取 Hermes 后台日志，把任务、工具、空间与产物关系可视化。"
+  }
+}
