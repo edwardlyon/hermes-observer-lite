@@ -282,6 +282,11 @@ button[data-filter="fail"].active  { border-color:var(--red);    color:var(--red
 .node.tool-detail h2 { font-size:12.5px; margin-top:5px; }
 .node.worker-slot { width:150px; height:58px; min-height:58px; padding:8px 10px; }
 .node.worker-slot h2 { font-size:12.5px; margin-top:5px; }
+.node.worker-slot.visible.idle {
+  opacity:.26;
+  border-style:dashed;
+  filter:saturate(.45) grayscale(.35);
+}
 
 .node-head {
   display: flex; align-items:center; justify-content:space-between;
@@ -802,6 +807,9 @@ const EDGES = [
   ["n-worker-a", "n-qc",       "pass"],
   ["n-worker-b", "n-qc",       "pass"],
   ["n-worker-c", "n-qc",       "pass"],
+  ["n-worker-a", "n-model",    "pass"],
+  ["n-worker-b", "n-model",    "pass"],
+  ["n-worker-c", "n-model",    "pass"],
   ["n-qc",       "n-response", "pass"],
   ["n-response", "n-input",    "hot"],
   ["n-tools",    "n-artifact", "pass"],
@@ -1130,7 +1138,12 @@ function setNodeState(id, newState) {
   document.querySelectorAll(".node.active-signal").forEach(n => n.classList.remove("active-signal"));
   el.classList.remove("idle");
   el.classList.add("active-signal");
-  setTimeout(() => el.classList.remove("active-signal"), 1200);
+  setTimeout(() => {
+    el.classList.remove("active-signal");
+    if (el.classList.contains("visible") && !el.classList.contains("filtered")) {
+      el.classList.add("idle");
+    }
+  }, 1200);
   el.classList.remove("running", "done", "warn", "fail", "qc");
   if      (newState === "run")  el.classList.add("running");
   else if (newState)            el.classList.add(newState);
@@ -1218,6 +1231,7 @@ function snapshotInitial() {
       warn:     cls.includes("warn"),
       fail:     cls.includes("fail"),
       qc:       cls.includes("qc"),
+      idle:     cls.includes("idle"),
       // Dot class
       dotClass: (el.querySelector(".dot") || {}).className || "dot",
     };
@@ -1257,6 +1271,7 @@ function reset() {
     if (init.warn)    el.classList.add("warn");
     if (init.fail)    el.classList.add("fail");
     if (init.qc)      el.classList.add("qc");
+    if (init.idle)    el.classList.add("idle");
 
     // Restore dot
     const dot = el.querySelector(".dot");
@@ -1381,16 +1396,27 @@ function processEvent(rawEvent, previousNode, options = {}) {
   const tone = toneForEvent(ev.type);
   let sourceNode = (ev.node === "n-response" && previousNode === "n-response") ? "n-model" : previousNode;
   if (ev.node.startsWith("n-worker-")) {
-    sourceNode = "n-model";
+    sourceNode = ev.type === "done" ? ev.node : "n-model";
   }
-  if (TOOL_DETAIL_NODES.has(ev.node) && sourceNode && sourceNode !== "n-tools") {
+  const workerSourceNode = ev.workerId && !ev.node.startsWith("n-worker-") ? workerNodeFor(ev) : "";
+  if (TOOL_DETAIL_NODES.has(ev.node) && workerSourceNode) {
+    activateEdge(workerSourceNode, "n-tools", "hot", { signal:false });
+    setNodeState("n-tools", "run");
+    sourceNode = "n-tools";
+  } else if (TOOL_DETAIL_NODES.has(ev.node) && sourceNode && sourceNode !== "n-tools") {
     activateEdge(sourceNode, "n-tools", "hot", { signal:false });
     setNodeState("n-tools", "run");
     sourceNode = "n-tools";
+  } else if ((ev.node === "n-alert" || ev.node === "n-fail") && workerSourceNode) {
+    sourceNode = workerSourceNode;
   }
+
+  const workerReturnTarget = ev.node.startsWith("n-worker-") && ev.type === "done" ? "n-model" : "";
 
   if (sourceNode && sourceNode !== ev.node) {
     activateEdge(sourceNode, ev.node, tone);
+  } else if (workerReturnTarget) {
+    activateEdge(ev.node, workerReturnTarget, tone);
   }
   if (ev.spaceNode && ev.spaceNode !== ev.node) {
     activateEdge(ev.node, ev.spaceNode, tone === "hot" ? "pass" : tone, { signal:false });
@@ -1399,6 +1425,8 @@ function processEvent(rawEvent, previousNode, options = {}) {
   drawWires();
   if (sourceNode && sourceNode !== ev.node) {
     animatePacket(sourceNode, ev.node);
+  } else if (workerReturnTarget) {
+    animatePacket(ev.node, workerReturnTarget);
   }
 
   updateNodeContent(ev);

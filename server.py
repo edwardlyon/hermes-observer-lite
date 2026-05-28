@@ -336,6 +336,15 @@ def events_for_session(log_path: Path, session_id: str) -> list[dict[str, Any]]:
                 "tech": False,
             })
             for event in child:
+                if event is first:
+                    continue
+                if event.get("node") in {"n-web", "n-terminal", "n-file", "n-memory", "n-tool-action", "n-alert", "n-fail", "n-artifact"}:
+                    child_events.append({
+                        **event,
+                        "session": session_id,
+                        "title": f"{worker_id} · {event.get('title', 'tool')}",
+                        "workerId": worker_id,
+                    })
                 if event.get("node") == "n-response":
                     child_events.append({
                         **event,
