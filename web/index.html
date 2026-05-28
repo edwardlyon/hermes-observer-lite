@@ -938,7 +938,8 @@ function routePath(fromId, toId) {
 const edgePaths = {};
 const activeEdges = new Map();
 const BASE_REPLAY_DELAY = 320;
-let currentEdgeKey = null;
+const SIGNAL_MS = 2400;
+const NODE_SIGNAL_MS = 2200;
 const workerSlots = ["n-worker-a", "n-worker-b", "n-worker-c"];
 const workerSlotByKey = new Map();
 let nextWorkerSlot = 0;
@@ -957,8 +958,16 @@ function toneForEvent(type) {
 function activateEdge(from, to, tone, options = {}) {
   if (!from || !to || from === to) return;
   const key = edgeKey(from, to);
-  activeEdges.set(key, { from, to, tone: tone || "hot", fresh: true, lastActive: Date.now() });
-  if (options.signal !== false) currentEdgeKey = key;
+  const now = Date.now();
+  activeEdges.set(key, {
+    from,
+    to,
+    tone: tone || "hot",
+    fresh: true,
+    lastActive: now,
+    signalUntil: options.signal === false ? 0 : now + SIGNAL_MS,
+  });
+  if (options.signal !== false) setTimeout(drawWires, SIGNAL_MS + 40);
 }
 
 function replayDelay() {
@@ -981,12 +990,12 @@ function drawWires() {
   wiresSvg.querySelectorAll("path.wire").forEach(p => p.remove());
 
   for (const edge of activeEdges.values()) {
-    const { from, to, tone, fresh, lastActive } = edge;
+    const { from, to, tone, fresh, signalUntil } = edge;
     const d = routePath(from, to);
     if (!d) continue;
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     const key = edgeKey(from, to);
-    const signal = key === currentEdgeKey ? " active-signal" : " stale";
+    const signal = signalUntil && Date.now() < signalUntil ? " active-signal" : " stale";
     path.setAttribute("class", `wire ${tone}${fresh ? " reveal" : ""}${signal}`);
     path.setAttribute("d", d);
     path.setAttribute("marker-end", `url(#arrow-${tone})`);
@@ -1159,7 +1168,6 @@ function setNodeState(id, newState) {
   // ── Update node CSS classes ──
   el.classList.add("visible");
   dimInactiveNodes(id);
-  document.querySelectorAll(".node.active-signal").forEach(n => n.classList.remove("active-signal"));
   el.classList.remove("idle");
   el.classList.add("active-signal");
   setTimeout(() => {
@@ -1167,7 +1175,7 @@ function setNodeState(id, newState) {
     if (el.classList.contains("visible") && !el.classList.contains("filtered")) {
       el.classList.add("idle");
     }
-  }, 1200);
+  }, NODE_SIGNAL_MS);
   el.classList.remove("running", "done", "warn", "fail", "qc");
   if      (newState === "run")  el.classList.add("running");
   else if (newState)            el.classList.add(newState);
@@ -1274,7 +1282,6 @@ function reset() {
   nodeState = {};
   counts    = { done: 0, run: 0, warn: 0, fail: 0 };
   activeEdges.clear();
-  currentEdgeKey = null;
   workerSlotByKey.clear();
   nextWorkerSlot = 0;
   Object.keys(edgePaths).forEach(k => delete edgePaths[k]);
@@ -1477,7 +1484,7 @@ function pulseNode(id, delay = 0) {
       if (el.classList.contains("visible") && !el.classList.contains("filtered")) {
         el.classList.add("idle");
       }
-    }, 900);
+    }, NODE_SIGNAL_MS);
   }, delay);
 }
 
