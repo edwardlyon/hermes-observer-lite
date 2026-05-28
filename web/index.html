@@ -447,6 +447,28 @@ button[data-filter="fail"].active  { border-color:var(--red);    color:var(--red
   font-weight:800;
 }
 
+.hover-tip {
+  position: fixed;
+  z-index: 50;
+  max-width: 360px;
+  padding: 9px 10px;
+  border: 1px solid rgba(245,239,216,.32);
+  background: rgba(21,23,18,.94);
+  color: var(--paper);
+  box-shadow: 0 14px 30px rgba(0,0,0,.28);
+  font-size: 11px;
+  line-height: 1.42;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity .12s ease, transform .12s ease;
+  white-space: pre-wrap;
+}
+.hover-tip.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 /* Artifacts */
 .artifact-list { display:flex; flex-direction:column; gap:0; }
 .artifact-row {
@@ -760,6 +782,7 @@ pre.schema {
     </aside>
   </main>
 </div><!-- /shell -->
+<div class="hover-tip" id="hoverTip" role="tooltip"></div>
 
 <script>
 // ══════════════════════════════════════════════
@@ -828,6 +851,7 @@ const EDGES = [
 const mapInner    = document.getElementById("mapInner");
 const wiresSvg    = document.getElementById("wires");
 const pkt         = document.getElementById("pkt");
+const hoverTip    = document.getElementById("hoverTip");
 const eventLog    = document.getElementById("eventLog");
 const playBtn     = document.getElementById("playBtn");
 const liveBtn     = document.getElementById("liveBtn");
@@ -1366,14 +1390,95 @@ async function loadSelectedSessionEvents() {
 function badgeHTML(type) {
   const label = { done:"✓", run:"RUN", warn:"!", fail:"✕", qc:"QC" }[type] || "?";
   const cls   = type === "done" ? "" : type;
-  return `<span class="badge ${cls}">${label}</span>`;
+  return `<span class="badge ${cls}" data-tooltip="状态: ${label}">${label}</span>`;
 }
 
 const TOOL_DETAIL_NODES = new Set(["n-web", "n-terminal", "n-file", "n-memory", "n-tool-action"]);
 
+function escapeHtml(value) {
+  return String(value || "").replace(/[&<>"']/g, ch => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[ch]));
+}
+
 function shortText(text, max = 54) {
   const clean = String(text || "").replace(/\s+/g, " ").trim();
   return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
+}
+
+function eventTooltip(ev) {
+  return [
+    ev.title || "Hermes event",
+    ev.body || "",
+    ev.workerId ? `SubAgent: ${ev.workerId}` : "",
+    ev.space ? `Space: ${spaceLabel(ev.space)}` : "",
+    ev.api ? `API: ${ev.api}` : "",
+    ev.lat ? `Latency: ${ev.lat}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+function setTooltip(el, text) {
+  if (!el || !text) return;
+  el.dataset.tooltip = text;
+}
+
+function initStaticTooltips() {
+  document.querySelectorAll(".node").forEach(node => {
+    const head = node.querySelector(".node-head span")?.textContent || node.id;
+    const title = node.querySelector("h2")?.textContent || "";
+    const body = node.querySelector("p")?.textContent || "";
+    setTooltip(node, [head, title, body].filter(Boolean).join("\n"));
+  });
+  document.querySelectorAll(".artifact-row, .meter").forEach(item => {
+    setTooltip(item, item.textContent.replace(/\s+/g, " ").trim());
+  });
+}
+
+function moveTooltip(event) {
+  const pad = 14;
+  const rect = hoverTip.getBoundingClientRect();
+  let x = event.clientX + pad;
+  let y = event.clientY + pad;
+  if (x + rect.width > window.innerWidth - 8) x = event.clientX - rect.width - pad;
+  if (y + rect.height > window.innerHeight - 8) y = event.clientY - rect.height - pad;
+  hoverTip.style.left = `${Math.max(8, x)}px`;
+  hoverTip.style.top = `${Math.max(8, y)}px`;
+}
+
+function bindTooltips() {
+  document.addEventListener("mouseover", event => {
+    const target = event.target.closest("[data-tooltip]");
+    if (!target) return;
+    hoverTip.textContent = target.dataset.tooltip;
+    hoverTip.classList.add("visible");
+    moveTooltip(event);
+  });
+  document.addEventListener("mousemove", event => {
+    if (hoverTip.classList.contains("visible")) moveTooltip(event);
+  });
+  document.addEventListener("mouseout", event => {
+    if (event.target.closest("[data-tooltip]")) hoverTip.classList.remove("visible");
+  });
+}
+
+function pulseNode(id, delay = 0) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  setTimeout(() => {
+    el.classList.add("visible");
+    el.classList.remove("idle");
+    el.classList.add("active-signal");
+    setTimeout(() => {
+      el.classList.remove("active-signal");
+      if (el.classList.contains("visible") && !el.classList.contains("filtered")) {
+        el.classList.add("idle");
+      }
+    }, 900);
+  }, delay);
 }
 
 function updateNodeContent(ev) {
@@ -1389,6 +1494,7 @@ function updateNodeContent(ev) {
   const bodyEl = el.querySelector("p");
   if (titleEl && ev.title) titleEl.textContent = shortText(ev.title, 28);
   if (bodyEl && ev.body) bodyEl.textContent = shortText(ev.body, ev.node === "n-response" ? 92 : 72);
+  setTooltip(el, eventTooltip(ev));
 }
 
 function processEvent(rawEvent, previousNode, options = {}) {
@@ -1400,23 +1506,34 @@ function processEvent(rawEvent, previousNode, options = {}) {
   }
   const workerSourceNode = ev.workerId && !ev.node.startsWith("n-worker-") ? workerNodeFor(ev) : "";
   if (TOOL_DETAIL_NODES.has(ev.node) && workerSourceNode) {
-    activateEdge(workerSourceNode, "n-tools", "hot", { signal:false });
+    activateEdge(workerSourceNode, "n-tools", "hot");
     setNodeState("n-tools", "run");
-    sourceNode = workerSourceNode;
+    pulseNode(workerSourceNode);
+    pulseNode("n-tools", 160);
+    sourceNode = "n-tools";
   } else if (TOOL_DETAIL_NODES.has(ev.node) && sourceNode && sourceNode !== "n-tools") {
-    activateEdge(sourceNode, "n-tools", "hot", { signal:false });
+    activateEdge(sourceNode, "n-tools", "hot");
     setNodeState("n-tools", "run");
+    pulseNode(sourceNode);
+    pulseNode("n-tools", 160);
     sourceNode = "n-tools";
   } else if ((ev.node === "n-alert" || ev.node === "n-fail") && workerSourceNode) {
-    sourceNode = workerSourceNode;
+    activateEdge(workerSourceNode, "n-tools", toneForEvent(ev.type));
+    setNodeState("n-tools", ev.type === "fail" ? "fail" : "warn");
+    pulseNode(workerSourceNode);
+    pulseNode("n-tools", 160);
+    sourceNode = "n-tools";
   }
 
   const workerReturnTarget = ev.node.startsWith("n-worker-") && ev.type === "done" ? "n-model" : "";
 
   if (sourceNode && sourceNode !== ev.node) {
     activateEdge(sourceNode, ev.node, tone);
+    pulseNode(sourceNode);
   } else if (workerReturnTarget) {
     activateEdge(ev.node, workerReturnTarget, tone);
+    pulseNode(ev.node);
+    pulseNode(workerReturnTarget, 160);
   }
   if (ev.spaceNode && ev.spaceNode !== ev.node) {
     activateEdge(ev.node, ev.spaceNode, tone === "hot" ? "pass" : tone, { signal:false });
@@ -1438,13 +1555,14 @@ function processEvent(rawEvent, previousNode, options = {}) {
   const row = document.createElement("div");
   row.className = "ev";
   row.dataset.etype = ev.type;
+  row.dataset.tooltip = eventTooltip(ev);
   if (ev.tech) row.dataset.tech = "1";
   row.innerHTML = `
     <div class="ev-time">${ev.t}</div>
     <div class="ev-body">
-      <b>${ev.title}</b>
-      <small>${ev.body}</small>
-      <span class="space-pill">${spaceLabel(ev.space)}</span>
+      <b>${escapeHtml(ev.title)}</b>
+      <small>${escapeHtml(ev.body)}</small>
+      <span class="space-pill" data-tooltip="${escapeHtml(eventTooltip(ev))}">${spaceLabel(ev.space)}</span>
     </div>
     ${badgeHTML(ev.type)}
   `;
@@ -1555,6 +1673,8 @@ window.addEventListener("resize", () => requestAnimationFrame(drawWires));
 // ══════════════════════════════════════════════
 reset();
 updateSpeedLabel();
+initStaticTooltips();
+bindTooltips();
 loadSessions();
 </script>
 </body>
