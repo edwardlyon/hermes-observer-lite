@@ -355,6 +355,7 @@ button[data-filter="fail"].active  { border-color:var(--red);    color:var(--red
 
 /* Filter dimming — applied via JS */
 .node.filtered { opacity:.11 !important; }
+.node.filtered.active-signal { opacity:1 !important; filter:none !important; }
 
 /* Progress bar */
 .progress {
@@ -938,8 +939,8 @@ function routePath(fromId, toId) {
 const edgePaths = {};
 const activeEdges = new Map();
 const BASE_REPLAY_DELAY = 320;
-const SIGNAL_MS = 2400;
-const NODE_SIGNAL_MS = 2200;
+const SIGNAL_MS = 2600;
+const NODE_SIGNAL_MS = SIGNAL_MS;
 const workerSlots = ["n-worker-a", "n-worker-b", "n-worker-c"];
 const workerSlotByKey = new Map();
 let nextWorkerSlot = 0;
@@ -1516,19 +1517,19 @@ function processEvent(rawEvent, previousNode, options = {}) {
     activateEdge(workerSourceNode, "n-tools", "hot");
     setNodeState("n-tools", "run");
     pulseNode(workerSourceNode);
-    pulseNode("n-tools", 160);
+    pulseNode("n-tools");
     sourceNode = "n-tools";
   } else if (TOOL_DETAIL_NODES.has(ev.node) && sourceNode && sourceNode !== "n-tools") {
     activateEdge(sourceNode, "n-tools", "hot");
     setNodeState("n-tools", "run");
     pulseNode(sourceNode);
-    pulseNode("n-tools", 160);
+    pulseNode("n-tools");
     sourceNode = "n-tools";
   } else if ((ev.node === "n-alert" || ev.node === "n-fail") && workerSourceNode) {
     activateEdge(workerSourceNode, "n-tools", toneForEvent(ev.type));
     setNodeState("n-tools", ev.type === "fail" ? "fail" : "warn");
     pulseNode(workerSourceNode);
-    pulseNode("n-tools", 160);
+    pulseNode("n-tools");
     sourceNode = "n-tools";
   }
 
@@ -1540,7 +1541,7 @@ function processEvent(rawEvent, previousNode, options = {}) {
   } else if (workerReturnTarget) {
     activateEdge(ev.node, workerReturnTarget, tone);
     pulseNode(ev.node);
-    pulseNode(workerReturnTarget, 160);
+    pulseNode(workerReturnTarget);
   }
   if (ev.spaceNode && ev.spaceNode !== ev.node) {
     activateEdge(ev.node, ev.spaceNode, tone === "hot" ? "pass" : tone, { signal:false });
