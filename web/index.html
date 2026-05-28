@@ -782,9 +782,9 @@ const EDGES = [
   ["n-input",    "n-session",  "hot"],
   ["n-session",  "n-model",    "hot"],
   ["n-session",  "n-tools",    "hot"],
-  ["n-session",  "n-worker-a", "warn"],
-  ["n-session",  "n-worker-b", "warn"],
-  ["n-session",  "n-worker-c", "warn"],
+  ["n-model",    "n-worker-a", "warn"],
+  ["n-model",    "n-worker-b", "warn"],
+  ["n-model",    "n-worker-c", "warn"],
   ["n-tools",    "n-web",      "pass"],
   ["n-tools",    "n-terminal", "pass"],
   ["n-tools",    "n-file",     "pass"],
@@ -1378,8 +1378,8 @@ function processEvent(rawEvent, previousNode, options = {}) {
   const ev = normalizeEvent(rawEvent);
   const tone = toneForEvent(ev.type);
   let sourceNode = (ev.node === "n-response" && previousNode === "n-response") ? "n-model" : previousNode;
-  if (ev.node.startsWith("n-worker-") && sourceNode && sourceNode.startsWith("n-worker-")) {
-    sourceNode = "n-session";
+  if (ev.node.startsWith("n-worker-")) {
+    sourceNode = "n-model";
   }
   if (TOOL_DETAIL_NODES.has(ev.node) && sourceNode && sourceNode !== "n-tools") {
     activateEdge(sourceNode, "n-tools", "hot", { signal:false });

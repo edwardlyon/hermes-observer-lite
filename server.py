@@ -157,7 +157,11 @@ def parse_line(line: str) -> dict[str, Any] | None:
         tool_name = tool_match.group("tool") if tool_match else ""
         node = tool_node(tool_name, message)
         title = f"Tool: {tool_name}" if tool_name else "Tool Executor"
-        if tool_name and ("agent" in tool_name or "worker" in tool_name or "delegate" in tool_name):
+        if tool_name and "delegate" in tool_name:
+            node = "n-tools"
+            title = "Delegate dispatcher"
+            tech = False
+        elif tool_name and ("agent" in tool_name or "worker" in tool_name):
             node = "n-worker"
             title = f"SubAgent: {tool_name}"
             worker_id = worker_id or tool_name
@@ -317,6 +321,8 @@ def events_for_session(log_path: Path, session_id: str) -> list[dict[str, Any]]:
                 worker_id = "SubAgent 二号"
             elif "三号" in body:
                 worker_id = "SubAgent 三号"
+            msg_match = MSG_RE.search(body)
+            task_body = f"任务：{msg_match.group('msg')}" if msg_match else body
             child_events.append({
                 **first,
                 "session": session_id,
@@ -325,9 +331,24 @@ def events_for_session(log_path: Path, session_id: str) -> list[dict[str, Any]]:
                 "spaceNode": "s-kanban",
                 "type": "run",
                 "title": worker_id,
+                "body": task_body[:240],
                 "workerId": worker_id,
                 "tech": False,
             })
+            for event in child:
+                if event.get("node") == "n-response":
+                    child_events.append({
+                        **event,
+                        "session": session_id,
+                        "node": "n-worker",
+                        "space": "dashboard",
+                        "spaceNode": "s-kanban",
+                        "type": "done",
+                        "title": f"{worker_id} 完成",
+                        "body": event.get("body") or "SubAgent response completed.",
+                        "workerId": worker_id,
+                        "tech": False,
+                    })
         if child_events:
             events = sorted(events + child_events, key=lambda event: event["time"])
     # Keep replay readable: system heartbeat-like events are not useful inside a session replay.
