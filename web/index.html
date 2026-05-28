@@ -632,19 +632,19 @@ pre.schema {
           <p>Weixin rate limit 或 provider / tool schema 不一致。</p>
         </div>
 
-        <div class="node worker-slot visible idle" id="n-worker-a" style="left:280px;top:314px">
+        <div class="node worker-slot" id="n-worker-a" style="left:280px;top:314px">
           <div class="node-head"><span><span class="glyph">🧑‍💻</span>SubAgent A</span> <span class="dot"></span></div>
           <h2>Worker A</h2>
           <p>第一条独立 worker 分支。</p>
         </div>
 
-        <div class="node worker-slot visible idle" id="n-worker-b" style="left:280px;top:386px">
+        <div class="node worker-slot" id="n-worker-b" style="left:280px;top:386px">
           <div class="node-head"><span><span class="glyph">🧑‍💻</span>SubAgent B</span> <span class="dot"></span></div>
           <h2>Worker B</h2>
           <p>第二条独立 worker 分支。</p>
         </div>
 
-        <div class="node worker-slot visible idle" id="n-worker-c" style="left:280px;top:458px">
+        <div class="node worker-slot" id="n-worker-c" style="left:280px;top:458px">
           <div class="node-head"><span><span class="glyph">🧑‍💻</span>SubAgent C</span> <span class="dot"></span></div>
           <h2>Worker C</h2>
           <p>第三条独立 worker 分支。</p>
@@ -1402,7 +1402,7 @@ function processEvent(rawEvent, previousNode, options = {}) {
   if (TOOL_DETAIL_NODES.has(ev.node) && workerSourceNode) {
     activateEdge(workerSourceNode, "n-tools", "hot", { signal:false });
     setNodeState("n-tools", "run");
-    sourceNode = "n-tools";
+    sourceNode = workerSourceNode;
   } else if (TOOL_DETAIL_NODES.has(ev.node) && sourceNode && sourceNode !== "n-tools") {
     activateEdge(sourceNode, "n-tools", "hot", { signal:false });
     setNodeState("n-tools", "run");

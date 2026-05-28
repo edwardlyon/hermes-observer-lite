@@ -33,6 +33,7 @@ WORKER_RE = re.compile(r"(worker-[A-Za-z0-9_.-]+|sub[- ]?agent[\s:_-]*(?:[A-Za-z
 RESPONSE_READY_RE = re.compile(r"response=(?P<len>[\d,]+) chars", re.I)
 SENDING_RE = re.compile(r"Sending response \((?P<len>[\d,]+) chars\) to (?P<to>\S+)", re.I)
 MSG_RE = re.compile(r"msg=(?P<quote>['\"])(?P<msg>.*?)(?P=quote)")
+CHILD_AGENT_RE = re.compile(r"子agent[-_ ]*(?P<num>\d+)?(?:（(?P<role>[^）]+)）)?", re.I)
 
 
 def classify_space(actor: str, message: str, level: str) -> str:
@@ -321,6 +322,17 @@ def events_for_session(log_path: Path, session_id: str) -> list[dict[str, Any]]:
                 worker_id = "SubAgent 二号"
             elif "三号" in body:
                 worker_id = "SubAgent 三号"
+            else:
+                child_agent_match = CHILD_AGENT_RE.search(body)
+                if child_agent_match:
+                    num = child_agent_match.group("num")
+                    role = child_agent_match.group("role")
+                    if num and role:
+                        worker_id = f"SubAgent {num} · {role}"
+                    elif num:
+                        worker_id = f"SubAgent {num}"
+                    elif role:
+                        worker_id = f"SubAgent · {role}"
             msg_match = MSG_RE.search(body)
             task_body = f"任务：{msg_match.group('msg')}" if msg_match else body
             child_events.append({
