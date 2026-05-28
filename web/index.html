@@ -938,9 +938,11 @@ function routePath(fromId, toId) {
 // event arrives. This mirrors real execution better than a pre-drawn map.
 const edgePaths = {};
 const activeEdges = new Map();
+const nodeSignalUntil = new Map();
 const BASE_REPLAY_DELAY = 320;
 const SIGNAL_MS = 2600;
 const NODE_SIGNAL_MS = SIGNAL_MS;
+const WAVE_STEP_MS = 360;
 const workerSlots = ["n-worker-a", "n-worker-b", "n-worker-c"];
 const workerSlotByKey = new Map();
 let nextWorkerSlot = 0;
@@ -969,6 +971,14 @@ function activateEdge(from, to, tone, options = {}) {
     signalUntil: options.signal === false ? 0 : now + SIGNAL_MS,
   });
   if (options.signal !== false) setTimeout(drawWires, SIGNAL_MS + 40);
+}
+
+function activateEdgeLater(from, to, tone, delay = 0, options = {}) {
+  setTimeout(() => {
+    activateEdge(from, to, tone, options);
+    drawWires();
+    animatePacket(from, to);
+  }, delay);
 }
 
 function replayDelay() {
@@ -1012,6 +1022,45 @@ function drawWires() {
     wiresSvg.insertBefore(path, pkt);   // keep pkt on top
     edgePaths[key] = path;
     edge.fresh = false;
+  }
+}
+
+function refreshNodeSignals() {
+  const now = Date.now();
+  for (const [id, until] of nodeSignalUntil.entries()) {
+    const el = document.getElementById(id);
+    if (!el) {
+      nodeSignalUntil.delete(id);
+      continue;
+    }
+    if (until > now) {
+      el.classList.add("visible", "active-signal");
+      el.classList.remove("idle");
+    } else {
+      el.classList.remove("active-signal");
+      if (el.classList.contains("visible") && !el.classList.contains("filtered")) {
+        el.classList.add("idle");
+      }
+      nodeSignalUntil.delete(id);
+    }
+  }
+}
+
+function signalNode(id, delay = 0, duration = NODE_SIGNAL_MS) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  setTimeout(() => {
+    const until = Date.now() + duration;
+    nodeSignalUntil.set(id, Math.max(nodeSignalUntil.get(id) || 0, until));
+    refreshNodeSignals();
+    setTimeout(refreshNodeSignals, duration + 40);
+  }, delay);
+}
+
+function wavePath(nodes, tone, startDelay = 0) {
+  nodes.forEach((nodeId, index) => signalNode(nodeId, startDelay + index * WAVE_STEP_MS));
+  for (let index = 0; index < nodes.length - 1; index += 1) {
+    activateEdgeLater(nodes[index], nodes[index + 1], tone, startDelay + index * WAVE_STEP_MS);
   }
 }
 
@@ -1142,6 +1191,8 @@ function dimInactiveNodes(activeId) {
   document.querySelectorAll(".node.visible").forEach(node => {
     if (node.id === activeId) {
       node.classList.remove("idle");
+    } else if (nodeSignalUntil.get(node.id) > Date.now()) {
+      node.classList.remove("idle");
     } else if (!node.classList.contains("filtered")) {
       node.classList.add("idle");
     }
@@ -1150,7 +1201,7 @@ function dimInactiveNodes(activeId) {
 
 // Transition a node to a new state, updating both
 // the DOM (class + dot) and the counter bookkeeping.
-function setNodeState(id, newState) {
+function setNodeState(id, newState, options = {}) {
   const el  = document.getElementById(id);
   if (!el) return;
 
@@ -1169,17 +1220,10 @@ function setNodeState(id, newState) {
   // ── Update node CSS classes ──
   el.classList.add("visible");
   dimInactiveNodes(id);
-  el.classList.remove("idle");
-  el.classList.add("active-signal");
-  setTimeout(() => {
-    el.classList.remove("active-signal");
-    if (el.classList.contains("visible") && !el.classList.contains("filtered")) {
-      el.classList.add("idle");
-    }
-  }, NODE_SIGNAL_MS);
   el.classList.remove("running", "done", "warn", "fail", "qc");
   if      (newState === "run")  el.classList.add("running");
   else if (newState)            el.classList.add(newState);
+  if (options.signal !== false) signalNode(id, options.delay || 0);
 
   // ── Update status dot ──
   const dot = el.querySelector(".dot");
@@ -1283,6 +1327,7 @@ function reset() {
   nodeState = {};
   counts    = { done: 0, run: 0, warn: 0, fail: 0 };
   activeEdges.clear();
+  nodeSignalUntil.clear();
   workerSlotByKey.clear();
   nextWorkerSlot = 0;
   Object.keys(edgePaths).forEach(k => delete edgePaths[k]);
@@ -1474,19 +1519,7 @@ function bindTooltips() {
 }
 
 function pulseNode(id, delay = 0) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  setTimeout(() => {
-    el.classList.add("visible");
-    el.classList.remove("idle");
-    el.classList.add("active-signal");
-    setTimeout(() => {
-      el.classList.remove("active-signal");
-      if (el.classList.contains("visible") && !el.classList.contains("filtered")) {
-        el.classList.add("idle");
-      }
-    }, NODE_SIGNAL_MS);
-  }, delay);
+  signalNode(id, delay);
 }
 
 function updateNodeContent(ev) {
@@ -1513,32 +1546,30 @@ function processEvent(rawEvent, previousNode, options = {}) {
     sourceNode = ev.type === "done" ? ev.node : "n-model";
   }
   const workerSourceNode = ev.workerId && !ev.node.startsWith("n-worker-") ? workerNodeFor(ev) : "";
+  let handledWave = false;
   if (TOOL_DETAIL_NODES.has(ev.node) && workerSourceNode) {
-    activateEdge(workerSourceNode, "n-tools", "hot");
-    setNodeState("n-tools", "run");
-    pulseNode(workerSourceNode);
-    pulseNode("n-tools");
+    setNodeState("n-tools", "run", { signal:false });
+    wavePath([workerSourceNode, "n-tools", ev.node], tone);
     sourceNode = "n-tools";
+    handledWave = true;
   } else if (TOOL_DETAIL_NODES.has(ev.node) && sourceNode && sourceNode !== "n-tools") {
-    activateEdge(sourceNode, "n-tools", "hot");
-    setNodeState("n-tools", "run");
-    pulseNode(sourceNode);
-    pulseNode("n-tools");
+    setNodeState("n-tools", "run", { signal:false });
+    wavePath([sourceNode, "n-tools", ev.node], tone);
     sourceNode = "n-tools";
+    handledWave = true;
   } else if ((ev.node === "n-alert" || ev.node === "n-fail") && workerSourceNode) {
-    activateEdge(workerSourceNode, "n-tools", toneForEvent(ev.type));
-    setNodeState("n-tools", ev.type === "fail" ? "fail" : "warn");
-    pulseNode(workerSourceNode);
-    pulseNode("n-tools");
+    setNodeState("n-tools", ev.type === "fail" ? "fail" : "warn", { signal:false });
+    wavePath([workerSourceNode, "n-tools", ev.node], tone);
     sourceNode = "n-tools";
+    handledWave = true;
   }
 
   const workerReturnTarget = ev.node.startsWith("n-worker-") && ev.type === "done" ? "n-model" : "";
 
-  if (sourceNode && sourceNode !== ev.node) {
+  if (!handledWave && sourceNode && sourceNode !== ev.node) {
     activateEdge(sourceNode, ev.node, tone);
     pulseNode(sourceNode);
-  } else if (workerReturnTarget) {
+  } else if (!handledWave && workerReturnTarget) {
     activateEdge(ev.node, workerReturnTarget, tone);
     pulseNode(ev.node);
     pulseNode(workerReturnTarget);
@@ -1548,14 +1579,14 @@ function processEvent(rawEvent, previousNode, options = {}) {
     setNodeState(ev.spaceNode, ev.type === "fail" ? "warn" : "done");
   }
   drawWires();
-  if (sourceNode && sourceNode !== ev.node) {
+  if (!handledWave && sourceNode && sourceNode !== ev.node) {
     animatePacket(sourceNode, ev.node);
-  } else if (workerReturnTarget) {
+  } else if (!handledWave && workerReturnTarget) {
     animatePacket(ev.node, workerReturnTarget);
   }
 
   updateNodeContent(ev);
-  setNodeState(ev.node, ev.type);
+  setNodeState(ev.node, ev.type, { signal:!handledWave, delay: handledWave ? 2 * WAVE_STEP_MS : 0 });
 
   if (ev.api) elBudget.textContent = ev.api;
   if (ev.lat) elLatency.textContent = ev.lat;
